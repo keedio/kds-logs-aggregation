@@ -1,8 +1,10 @@
 package org.keedio.kds.logs
 
+import java.io.StringWriter
 import java.util
 import java.util.Properties
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.flink.api.common.functions.RuntimeContext
 import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.api.scala._
@@ -27,9 +29,10 @@ object ReadFromKafka {
     propertiesKafkaConsumer.setProperty("bootstrap.servers", properties.getRequired("kafka.broker.list"))
     propertiesKafkaConsumer.setProperty("zookeeper.connect", properties.getRequired("zookeeper.server.list"))
     propertiesKafkaConsumer.setProperty("group.id", properties.getRequired("zookeeper.group.id"))
+    propertiesKafkaConsumer.setProperty("auto.offset.reset", properties.getRequired("kafka.auto.offset.reset"))
 
     val env: StreamExecutionEnvironment = StreamExecutionEnvironment.getExecutionEnvironment
-    env.enableCheckpointing(5000)
+    //env.enableCheckpointing(5000)
 
     // Se obtienen los eventos de kafka
     val inputStream: DataStream[String] = env.addSource(new FlinkKafkaConsumer08[String](
@@ -38,30 +41,9 @@ object ReadFromKafka {
       propertiesKafkaConsumer)
     )
 
-    inputStream.rebalance.print
+    //    inputStream.rebalance.print
 
     // Se realiza una comprobacion de si Kafka y ElasticSeach estan arrancados?????
-
-    //    val jsonStrema: DataStream[Json] = wordsStream.map(new createJsonFromStringComoMeviene())
-    //    def creafJosnlf...() = {
-    //      wordsStream.map(string => {
-    //        val parMetadataYPaylod = string.split(":")
-    //
-    //        val arrayMeatadatsos = parMetadataYPaylod(0).split("] [")
-    //        val payload = parMetadataYPaylod(1)
-    //
-    //        Seq(("fecha", arrayMeatadatsos(0)), ("serveridad", arrayMeatadatsos(1))..... , "body", payload)
-    //
-    //        new JsonKeedio(elemento  de arrbia)
-    //
-    //        PreJson.feccha, Presjons.bodh, laldjl
-    //      })
-    //    }
-
-    //    val xxx: (String, String, String) = parseMap(inputStream.toString)
-    //val palabras = wordsStream.map(t => (t._) //inputStream.flatMap(value => value.split(",")).map(t => (t(1),1))
-
-    //val ll = wordsStream.map(new GridToCoordinates)
 
     // contar que el numero de campos es el correcto
     // ver si alguno mandatory (esto tiene sentido????) no ha llegado
@@ -83,22 +65,13 @@ object ReadFromKafka {
       properties.getRequired("elasticSearch.port").toInt))
 
     inputStream.addSink(new ElasticsearchSink(config, transportAddress, new IndexRequestBuilder[String] {
-      override def createIndexRequest(element: String, ctx: RuntimeContext): IndexRequest = {
+      override def createIndexRequest(line: String, ctx: RuntimeContext): IndexRequest = {
 
-        val inputXXXX: (String, String, String) = parseMap(element)
-        //        val inputXXXX: DataStream[(String, String, String)] = element.map(line => parseMap(line))
+        val finalJSON = createJSON(line)
 
-        val json = new util.HashMap[String, String]
-        json.put("data_1", inputXXXX._1)
-        json.put("data_2", inputXXXX._2)
-        json.put("data_3", inputXXXX._3)
+        val serviceName = getMetadataLog(line)
 
-        println("element: " + element)
-        println("SENDING_1: " + inputXXXX._1)
-        println("SENDING_2: " + inputXXXX._2)
-//        println("SENDING_3: " + inputXXXX.map(terna => terna._3).toString)
-
-        Requests.indexRequest.index("my-index3").`type`("my-type").source(json)
+        Requests.indexRequest.index(serviceName(3).toLowerCase()).`type`("my-type").source(finalJSON)
 
       }
     }))
@@ -106,10 +79,46 @@ object ReadFromKafka {
     env.execute("Flink Kafka Example")
   }
 
-  def parseMap(line: String): (String, String, String) = {
-    val record: Array[String] = line.split(",")
-//    val paso = record(0)
-    (record(0), record(1), record(2))
+  def getParMetadataPayLoad(line: String): Array[String] = {
+    val parMetadataPayLoad: Array[String] = line.toString.split("]:")
+    parMetadataPayLoad
+  }
+
+  def getMetadataLog(line: String): Array[String] = {
+
+    val parMetadataPayLoad = getParMetadataPayLoad(line)
+    val arrayMetadatos: Array[String] = parMetadataPayLoad(0).split("] \\[")
+
+    arrayMetadatos
+  }
+
+  def getPayLoad(line: String): String = {
+
+    val parMetadataPayLoad = getParMetadataPayLoad(line)
+    val payLoad: String = parMetadataPayLoad(1)
+
+    payLoad
+
+  }
+
+  def createJSON(line: String): String = {
+
+    val arrayMetadatos: Array[String] = getMetadataLog(line)
+    val payLoad: String = getPayLoad(line)
+
+    val metadatosJson = new LogPayLoad(arrayMetadatos(4), arrayMetadatos(5), payLoad)
+    val logJson = new LogMetadataService(arrayMetadatos(0), arrayMetadatos(0),
+      arrayMetadatos(1), arrayMetadatos(2), metadatosJson)
+
+    val mapper = new ObjectMapper()
+    val outLogJson = new StringWriter
+    mapper.writeValue(outLogJson, logJson)
+
+    val json = outLogJson.toString()
+
+    println("json: " + json)
+
+    json
 
   }
 
