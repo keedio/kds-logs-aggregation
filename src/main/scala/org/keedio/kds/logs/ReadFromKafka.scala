@@ -41,85 +41,127 @@ object ReadFromKafka {
       propertiesKafkaConsumer)
     )
 
-    //    inputStream.rebalance.print
-
     // Se realiza una comprobacion de si Kafka y ElasticSeach estan arrancados?????
-
-    // contar que el numero de campos es el correcto
-    // ver si alguno mandatory (esto tiene sentido????) no ha llegado
+    // Se comprueba que el indice existe en ElasticSeach
 
     // controlar de alguna manera el tema de multilineas
     // si llega sin '\n' hay que volver a ponerla????
 
-    // formar el json a insertar en elastecsearch
-
-    // Con figuaracion del cluster de ElasticSearch
+    // Configuaracion del cluster de ElasticSearch
     val config: util.HashMap[String, String] = new util.HashMap[String, String]
     config.put("bulk.flush.max.actions", properties.getRequired("elasticSearch.bulk.flush.max.actions"))
     config.put("cluster.name", properties.getRequired("elasticSearch.cluster.name"))
 
-    val transportAddress: util.ArrayList[TransportAddress] = new util.ArrayList[TransportAddress]
+    // Configuracion el 'transportAddress' del Sink de ElasticSearch
     // Si hay mas de un nodo habria que ver la forma de acerlo automatico.....
+    val transportAddress: util.ArrayList[TransportAddress] = new util.ArrayList[TransportAddress]
     transportAddress.add(new InetSocketTransportAddress(
       properties.getRequired("elasticSearch.host.name"),
       properties.getRequired("elasticSearch.port").toInt))
 
+    // Se manda a ElasticSearch el la informacion extraida del log en un JSON
     inputStream.addSink(new ElasticsearchSink(config, transportAddress, new IndexRequestBuilder[String] {
-      override def createIndexRequest(line: String, ctx: RuntimeContext): IndexRequest = {
+      override def createIndexRequest(lineLog: String, ctx: RuntimeContext): IndexRequest = {
 
-        val finalJSON = createJSON(line)
+        // contar que el numero de campos es el correcto
+        // ver si alguno mandatory (esto tiene sentido????) no ha llegado
+        val lineLogOK = isLineOK(lineLog)
 
-        val serviceName = getMetadataLog(line)
+        val (finalJSON, nameServiceLog) = lineLogOK match {
+          case true => (createJSON(lineLog), getMetadataLog(lineLog)(3))
+          case false => (createDummyJSON(lineLog), "duumyService")
+        }
 
-        Requests.indexRequest.index(serviceName(3).toLowerCase()).`type`("my-type").source(finalJSON)
+        Requests.indexRequest.index(properties.getRequired("elasticSearch.index.name"))
+          .`type`(nameServiceLog.toLowerCase()).source(finalJSON)
 
       }
     }))
 
-    env.execute("Flink Kafka Example")
+    env.execute("Flink kds-logs-aggregation")
   }
 
-  def getParMetadataPayLoad(line: String): Array[String] = {
-    val parMetadataPayLoad: Array[String] = line.toString.split("]:")
-    parMetadataPayLoad
+  def isLineOK(line: String): Boolean = {
+
+    val parMetadataYPaylod: Array[String] = line.split("]:")
+
+    parMetadataYPaylod.length match {
+      case 2 => {
+        val arrayMeatadatsos = parMetadataYPaylod(0).split("] \\[")
+        arrayMeatadatsos.length match {
+          case 6 => true
+          case _ => false
+        }
+      }
+      case _ => false
+    }
+  }
+
+  def createDummyJSON(line: String): String = {
+    // Se crea la estructura del JSON
+    val metadatosJson = new LogPayLoad("logMalformed", "logMalformed", line)
+    val logJson = new LogMetadataService("logMalformed", "logMalformed", "logMalformed", "logMalformed", metadatosJson)
+
+    // Se transforma el pojo en un JSON
+    val mapper = new ObjectMapper()
+    val outLogJson = new StringWriter
+    mapper.writeValue(outLogJson, logJson)
+
+    outLogJson.toString()
+  }
+
+  def createJSON(line: String): String = {
+
+    // Se obtienen los datos de la linea de log
+    val arrayMetadatos: Array[String] = getMetadataLog(line)
+    val payLoad: String = getPayLoad(line)
+
+    val timeStampLog: String = getTimeStamp(arrayMetadatos(0).substring(1, arrayMetadatos(0).length))
+    val timeZoneLog: String = getTimeZone(arrayMetadatos(0))
+
+    // Se crea la estructura del JSON
+    val metadatosJson = new LogPayLoad(arrayMetadatos(4), arrayMetadatos(5), payLoad)
+    val logJson = new LogMetadataService(timeStampLog, timeZoneLog, arrayMetadatos(1), arrayMetadatos(2), metadatosJson)
+
+    // Se transforma el pojo en un JSON
+    val mapper = new ObjectMapper()
+    val outLogJson = new StringWriter
+    mapper.writeValue(outLogJson, logJson)
+
+    outLogJson.toString()
+  }
+
+  def getTimeStamp(text: String): String = {
+    val arraySplitText = getSplitText(text, " ")
+    val timeStampLog = arraySplitText(0) + " " + arraySplitText(1)
+
+    timeStampLog
+  }
+
+  def getTimeZone(text: String): String = {
+    val arraySplitText = getSplitText(text, " ")
+    val timeZoneLog = arraySplitText(2)
+
+    timeZoneLog
+  }
+
+  def getSplitText(text: String, charSplit: String): Array[String] = {
+    val arraySplitText: Array[String] = text.toString.split(charSplit)
+    arraySplitText
   }
 
   def getMetadataLog(line: String): Array[String] = {
-
-    val parMetadataPayLoad = getParMetadataPayLoad(line)
+    val parMetadataPayLoad = getSplitText(line, "]:")
     val arrayMetadatos: Array[String] = parMetadataPayLoad(0).split("] \\[")
 
     arrayMetadatos
   }
 
   def getPayLoad(line: String): String = {
-
-    val parMetadataPayLoad = getParMetadataPayLoad(line)
+    val parMetadataPayLoad = getSplitText(line, "]:")
     val payLoad: String = parMetadataPayLoad(1)
 
     payLoad
-
-  }
-
-  def createJSON(line: String): String = {
-
-    val arrayMetadatos: Array[String] = getMetadataLog(line)
-    val payLoad: String = getPayLoad(line)
-
-    val metadatosJson = new LogPayLoad(arrayMetadatos(4), arrayMetadatos(5), payLoad)
-    val logJson = new LogMetadataService(arrayMetadatos(0), arrayMetadatos(0),
-      arrayMetadatos(1), arrayMetadatos(2), metadatosJson)
-
-    val mapper = new ObjectMapper()
-    val outLogJson = new StringWriter
-    mapper.writeValue(outLogJson, logJson)
-
-    val json = outLogJson.toString()
-
-    println("json: " + json)
-
-    json
-
   }
 
 }
