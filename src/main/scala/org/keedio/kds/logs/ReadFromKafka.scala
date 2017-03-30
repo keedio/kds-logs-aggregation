@@ -16,6 +16,8 @@ import org.elasticsearch.action.index.IndexRequest
 import org.elasticsearch.client.Requests
 import org.elasticsearch.common.transport.{InetSocketTransportAddress, TransportAddress}
 
+import scala.collection.JavaConversions._
+
 /**
   * Created by ivanrozas on 17/3/17.
   */
@@ -36,7 +38,7 @@ object ReadFromKafka {
 
     // Se obtienen los eventos de kafka
     val inputStream: DataStream[String] = env.addSource(new FlinkKafkaConsumer08[String](
-      properties.getRequired("kafka.topic.list"),
+      properties.getRequired("kafka.topic.list").split(",").toList,
       new SimpleStringSchema(),
       propertiesKafkaConsumer)
     )
@@ -71,6 +73,7 @@ object ReadFromKafka {
           case true => (createJSON(lineLog), getMetadataLog(lineLog)(3))
           case false => (createDummyJSON(lineLog), "duumyService")
         }
+        println("finalJSON: " + finalJSON.toString)
 
         Requests.indexRequest.index(properties.getRequired("elasticSearch.index.name"))
           .`type`(nameServiceLog.toLowerCase()).source(finalJSON)
