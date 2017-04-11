@@ -6,7 +6,7 @@
 
     <groupId>org.keedio.kds.logs</groupId>
     <artifactId>kds-logs-aggregation</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.2-SNAPSHOT</version>
 
     <properties>
         <scala.version>2.10.4</scala.version>

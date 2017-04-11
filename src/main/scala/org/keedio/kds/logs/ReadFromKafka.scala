@@ -4,7 +4,7 @@ import java.io.StringWriter
 import java.util
 import java.util.Properties
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
 import org.apache.flink.api.common.functions.RuntimeContext
 import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.api.scala._
@@ -63,17 +63,25 @@ object ReadFromKafka {
 
     // Se manda a ElasticSearch el la informacion extraida del log en un JSON
     inputStream.addSink(new ElasticsearchSink(config, transportAddress, new IndexRequestBuilder[String] {
-      override def createIndexRequest(lineLog: String, ctx: RuntimeContext): IndexRequest = {
+      override def createIndexRequest(lineEvent: String, ctx: RuntimeContext): IndexRequest = {
 
-        // contar que el numero de campos es el correcto
-        // ver si alguno mandatory (esto tiene sentido????) no ha llegado
-        val lineLogOK = isLineOK(lineLog)
+        // Se comprueba que la linea del evento llaga correctamente formada
+        val lineLogOK = isJSON(lineEvent)
 
         val (finalJSON, nameServiceLog) = lineLogOK match {
-          case true => (createJSON(lineLog), getMetadataLog(lineLog)(3))
-          case false => (createDummyJSON(lineLog), "duumyService")
+          case true => {
+            // Se obtiene el JSON como objeto
+            val eventJSON = getJSONAsObject(lineEvent)
+
+            //(createJSONromJSON(eventJSON), eventJSON.get("serviceName").toString)
+            (createJSONFromJSON(eventJSON), "yarn")
+          }
+          case false => (createDummyJSON(lineEvent), "yarn")
         }
-        println("finalJSON: " + finalJSON.toString)
+
+        println("******************************************** iniJSON: " + lineEvent)
+        println("******************************************** finJSON: " + finalJSON)
+        println("************************************* nameServiceLog: " + nameServiceLog.toLowerCase())
 
         Requests.indexRequest.index(properties.getRequired("elasticSearch.index.name"))
           .`type`(nameServiceLog.toLowerCase()).source(finalJSON)
@@ -84,23 +92,49 @@ object ReadFromKafka {
     env.execute("Flink kds-logs-aggregation")
   }
 
-  def isLineOK(line: String): Boolean = {
+  def isJSON(line: String): Boolean = {
+    try {
+      getJSONAsObject(line)
+      true
 
-    val parMetadataYPaylod: Array[String] = line.split("]:")
-
-    parMetadataYPaylod.length match {
-      case 2 => {
-        val arrayMeatadatsos = parMetadataYPaylod(0).split("] \\[")
-        arrayMeatadatsos.length match {
-          case 6 => true
-          case _ => false
-        }
-      }
-      case _ => false
+    } catch {
+      case e: Exception => false
     }
   }
 
-  def createDummyJSON(line: String): String = {
+  def getJSONAsObject(line: String): JsonNode = {
+    // Se transforma el String en un JSON
+    val mapperRead = new ObjectMapper()
+    val lineObj = mapperRead.readTree(line)
+
+    lineObj
+  }
+
+  def createJSONFromJSON(lineObj: JsonNode): StringWriter = {
+
+    val thread = lineObj.get("threadName").toString
+    val fqcn = lineObj.get("locationInfo").get("className").toString
+    val PayLoad = lineObj.get("message") + " " + lineObj.get("locationInfo").get("fullInfo") + " " +
+      lineObj.get("throwableInfo").get("throwableStrRep")
+
+    val datetime = lineObj.get("timeStamp").toString
+    val timezone = "+0000"
+    val hostname = "hostName"
+    val level = lineObj.get("level").toString
+
+    // Se crea la estructura del JSON
+    val metaDatosJson = new LogPayLoad(thread, fqcn, PayLoad)
+    val logJson = new LogMetadataService(datetime, timezone, hostname, level, metaDatosJson)
+
+    // Se transforma el pojo en un JSON
+    val mapperWrite = new ObjectMapper()
+    val outLogJson = new StringWriter
+    mapperWrite.writeValue(outLogJson, logJson)
+
+    outLogJson
+  }
+
+  def createDummyJSON(line: String): StringWriter = {
     // Se crea la estructura del JSON
     val metadatosJson = new LogPayLoad("logMalformed", "logMalformed", line)
     val logJson = new LogMetadataService("logMalformed", "logMalformed", "logMalformed", "logMalformed", metadatosJson)
@@ -110,61 +144,7 @@ object ReadFromKafka {
     val outLogJson = new StringWriter
     mapper.writeValue(outLogJson, logJson)
 
-    outLogJson.toString()
-  }
-
-  def createJSON(line: String): String = {
-
-    // Se obtienen los datos de la linea de log
-    val arrayMetadatos: Array[String] = getMetadataLog(line)
-    val payLoad: String = getPayLoad(line)
-
-    val timeStampLog: String = getTimeStamp(arrayMetadatos(0).substring(1, arrayMetadatos(0).length))
-    val timeZoneLog: String = getTimeZone(arrayMetadatos(0))
-
-    // Se crea la estructura del JSON
-    val metadatosJson = new LogPayLoad(arrayMetadatos(4), arrayMetadatos(5), payLoad)
-    val logJson = new LogMetadataService(timeStampLog, timeZoneLog, arrayMetadatos(1), arrayMetadatos(2), metadatosJson)
-
-    // Se transforma el pojo en un JSON
-    val mapper = new ObjectMapper()
-    val outLogJson = new StringWriter
-    mapper.writeValue(outLogJson, logJson)
-
-    outLogJson.toString()
-  }
-
-  def getTimeStamp(text: String): String = {
-    val arraySplitText = getSplitText(text, " ")
-    val timeStampLog = arraySplitText(0) + " " + arraySplitText(1)
-
-    timeStampLog
-  }
-
-  def getTimeZone(text: String): String = {
-    val arraySplitText = getSplitText(text, " ")
-    val timeZoneLog = arraySplitText(2)
-
-    timeZoneLog
-  }
-
-  def getSplitText(text: String, charSplit: String): Array[String] = {
-    val arraySplitText: Array[String] = text.toString.split(charSplit)
-    arraySplitText
-  }
-
-  def getMetadataLog(line: String): Array[String] = {
-    val parMetadataPayLoad = getSplitText(line, "]:")
-    val arrayMetadatos: Array[String] = parMetadataPayLoad(0).split("] \\[")
-
-    arrayMetadatos
-  }
-
-  def getPayLoad(line: String): String = {
-    val parMetadataPayLoad = getSplitText(line, "]:")
-    val payLoad: String = parMetadataPayLoad(1)
-
-    payLoad
+    outLogJson
   }
 
 }
