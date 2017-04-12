@@ -15,6 +15,8 @@ import org.apache.flink.streaming.util.serialization.SimpleStringSchema
 import org.elasticsearch.action.index.IndexRequest
 import org.elasticsearch.client.Requests
 import org.elasticsearch.common.transport.{InetSocketTransportAddress, TransportAddress}
+import org.joda.time._
+import org.joda.time.format._
 
 import scala.collection.JavaConversions._
 
@@ -23,9 +25,10 @@ import scala.collection.JavaConversions._
   */
 object ReadFromKafka {
 
+  val propertiesFile = "./src/main/resources/logsAggregation.properties"
+  val properties = ParameterTool.fromPropertiesFile(propertiesFile)
+
   def main(args: Array[String]): Unit = {
-    val propertiesFile = "./src/main/resources/logsAggregation.properties"
-    val properties = ParameterTool.fromPropertiesFile(propertiesFile)
 
     val propertiesKafkaConsumer = new Properties()
     propertiesKafkaConsumer.setProperty("bootstrap.servers", properties.getRequired("kafka.broker.list"))
@@ -42,12 +45,6 @@ object ReadFromKafka {
       new SimpleStringSchema(),
       propertiesKafkaConsumer)
     )
-
-    // Se realiza una comprobacion de si Kafka y ElasticSeach estan arrancados?????
-    // Se comprueba que el indice existe en ElasticSeach
-
-    // controlar de alguna manera el tema de multilineas
-    // si llega sin '\n' hay que volver a ponerla????
 
     // Configuaracion del cluster de ElasticSearch
     val config: util.HashMap[String, String] = new util.HashMap[String, String]
@@ -74,14 +71,10 @@ object ReadFromKafka {
             val eventJSON = getJSONAsObject(lineEvent)
 
             //(createJSONromJSON(eventJSON), eventJSON.get("serviceName").toString)
-            (createJSONFromJSON(eventJSON), "yarn")
+            (createJSONFromJSON(eventJSON), "loNuevo")
           }
-          case false => (createDummyJSON(lineEvent), "yarn")
+          case false => (createDummyJSON(lineEvent), "loNuevo")
         }
-
-        println("******************************************** iniJSON: " + lineEvent)
-        println("******************************************** finJSON: " + finalJSON)
-        println("************************************* nameServiceLog: " + nameServiceLog.toLowerCase())
 
         Requests.indexRequest.index(properties.getRequired("elasticSearch.index.name"))
           .`type`(nameServiceLog.toLowerCase()).source(finalJSON)
@@ -96,7 +89,6 @@ object ReadFromKafka {
     try {
       getJSONAsObject(line)
       true
-
     } catch {
       case e: Exception => false
     }
@@ -110,17 +102,25 @@ object ReadFromKafka {
     lineObj
   }
 
-  def createJSONFromJSON(lineObj: JsonNode): StringWriter = {
+  def createJSONFromJSON(lineObj: JsonNode): String = {
 
-    val thread = lineObj.get("threadName").toString
-    val fqcn = lineObj.get("locationInfo").get("className").toString
-    val PayLoad = lineObj.get("message") + " " + lineObj.get("locationInfo").get("fullInfo") + " " +
-      lineObj.get("throwableInfo").get("throwableStrRep")
+    val thread = lineObj.get(properties.getRequired("json.origen.threadName")).toString
+    val fqcn = lineObj.get(properties.getRequired("json.origen.locationInfo"))
+      .get(properties.getRequired("json.origen.className")).toString
+    val PayLoad = lineObj.get(properties.getRequired("json.origen.message")) + " " +
+      lineObj.get(properties.getRequired("json.origen.locationInfo"))
+        .get(properties.getRequired("json.origen.fullInfo")) + " " +
+      lineObj.get(properties.getRequired("json.origen.throwableInfo"))
+        .get(properties.getRequired("json.origen.throwableStrRep"))
 
-    val datetime = lineObj.get("timeStamp").toString
-    val timezone = "+0000"
+    val dateTimeZone = formatDate(lineObj.get(properties.getRequired("json.origen.timeStamp")).longValue(),
+      properties.getRequired("json.fin.pattern.datetimezone"))
+    val splitDateTimeZone = getSplitText(dateTimeZone, " ")
+
+    val datetime = splitDateTimeZone(0) + " " + splitDateTimeZone(1)
+    val timezone = splitDateTimeZone(2)
     val hostname = "hostName"
-    val level = lineObj.get("level").toString
+    val level = lineObj.get(properties.getRequired("json.origen.level")).toString
 
     // Se crea la estructura del JSON
     val metaDatosJson = new LogPayLoad(thread, fqcn, PayLoad)
@@ -131,10 +131,10 @@ object ReadFromKafka {
     val outLogJson = new StringWriter
     mapperWrite.writeValue(outLogJson, logJson)
 
-    outLogJson
+    outLogJson.toString
   }
 
-  def createDummyJSON(line: String): StringWriter = {
+  def createDummyJSON(line: String): String = {
     // Se crea la estructura del JSON
     val metadatosJson = new LogPayLoad("logMalformed", "logMalformed", line)
     val logJson = new LogMetadataService("logMalformed", "logMalformed", "logMalformed", "logMalformed", metadatosJson)
@@ -144,7 +144,17 @@ object ReadFromKafka {
     val outLogJson = new StringWriter
     mapper.writeValue(outLogJson, logJson)
 
-    outLogJson
+    outLogJson.toString
   }
 
+  def formatDate(timeMillis: Long, patternStr: String): String = {
+    val date = new DateTime(timeMillis)
+    val pattern = patternStr
+    DateTimeFormat.forPattern(pattern).print(date)
+  }
+
+  def getSplitText(text: String, charSplit: String): Array[String] = {
+    val arraySplitText: Array[String] = text.toString.split(charSplit)
+    arraySplitText
+  }
 }
