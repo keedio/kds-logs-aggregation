@@ -52,7 +52,6 @@ object ReadFromKafka {
     config.put("cluster.name", properties.getRequired("elasticSearch.cluster.name"))
 
     // Configuracion el 'transportAddress' del Sink de ElasticSearch
-    // Si hay mas de un nodo habria que ver la forma de acerlo automatico.....
     val transportAddress: util.ArrayList[TransportAddress] = new util.ArrayList[TransportAddress]
     transportAddress.add(new InetSocketTransportAddress(
       properties.getRequired("elasticSearch.host.name"),
