@@ -100,7 +100,7 @@ object ReadFromKafka {
 
   def createJSONFromJSON(lineObj: JsonNode): String = {
 
-    // Se setean los valores para el pojo 'vLogPayLoad'
+    // Se setean los valores para el pojo 'LogPayLoad'
     val thread = quitaComillas(lineObj.get(properties.getRequired("json.origen.event"))
       .get(properties.getRequired("json.origen.threadName")))
     val fqcn = quitaComillas(lineObj.get(properties.getRequired("json.origen.event"))
