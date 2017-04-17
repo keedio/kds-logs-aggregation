@@ -26,7 +26,7 @@ import scala.collection.JavaConversions._
 object ReadFromKafka {
 
   val propertiesFile = "./src/main/resources/logsAggregation.properties"
-  val properties = ParameterTool.fromPropertiesFile(propertiesFile)
+  val properties: ParameterTool = ParameterTool.fromPropertiesFile(propertiesFile)
 
   def main(args: Array[String]): Unit = {
 
@@ -67,13 +67,10 @@ object ReadFromKafka {
 
         val (finalJSON, nameServiceLog) = lineLogOK match {
           case true => {
-            // Se obtiene el JSON como objeto
             val eventJSON = getJSONAsObject(lineEvent)
-
-            //(createJSONromJSON(eventJSON), eventJSON.get("serviceName").toString)
-            (createJSONFromJSON(eventJSON), "loNuevo")
+            (createJSONFromJSON(eventJSON), quitaComillas(eventJSON.get(properties.getRequired("json.origen.topic"))))
           }
-          case false => (createDummyJSON(lineEvent), "loNuevo")
+          case false => (createDummyJSON(lineEvent), "dummyService")
         }
 
         Requests.indexRequest.index(properties.getRequired("elasticSearch.index.name"))
@@ -104,34 +101,39 @@ object ReadFromKafka {
 
   def createJSONFromJSON(lineObj: JsonNode): String = {
 
-    val thread = lineObj.get(properties.getRequired("json.origen.threadName")).toString
-    val fqcn = lineObj.get(properties.getRequired("json.origen.locationInfo"))
-      .get(properties.getRequired("json.origen.className")).toString
-    val PayLoad = lineObj.get(properties.getRequired("json.origen.message")) + " " +
-      lineObj.get(properties.getRequired("json.origen.locationInfo"))
-        .get(properties.getRequired("json.origen.fullInfo")) + " " +
-      lineObj.get(properties.getRequired("json.origen.throwableInfo"))
-        .get(properties.getRequired("json.origen.throwableStrRep"))
+    // Se setean los valores para el pojo 'vLogPayLoad'
+    val thread = quitaComillas(lineObj.get(properties.getRequired("json.origen.event"))
+      .get(properties.getRequired("json.origen.threadName")))
+    val fqcn = quitaComillas(lineObj.get(properties.getRequired("json.origen.event"))
+      .get(properties.getRequired("json.origen.locationInfo"))
+      .get(properties.getRequired("json.origen.className")))
+    val PayLoad = quitaComillas(lineObj.get(properties.getRequired("json.origen.event"))
+      .get(properties.getRequired("json.origen.message"))) + " " +
+      quitaComillas(lineObj.get(properties.getRequired("json.origen.event"))
+        .get(properties.getRequired("json.origen.locationInfo"))
+        .get(properties.getRequired("json.origen.fullInfo"))) + " " +
+      quitaComillas(lineObj.get(properties.getRequired("json.origen.event"))
+        .get(properties.getRequired("json.origen.throwableInfo"))
+        .get(properties.getRequired("json.origen.throwableStrRep")))
 
-    val dateTimeZone = formatDate(lineObj.get(properties.getRequired("json.origen.timeStamp")).longValue(),
+    // Se obtiene el 'datetime' y el 'timezone' del timeStamp en milisegundos
+    val dateTimeZone = formatDate(lineObj.get(properties.getRequired("json.origen.event"))
+      .get(properties.getRequired("json.origen.timeStamp")).longValue(),
       properties.getRequired("json.fin.pattern.datetimezone"))
     val splitDateTimeZone = getSplitText(dateTimeZone, " ")
 
+    // Se setean los valores para el pojo 'LogMetadataService'
     val datetime = splitDateTimeZone(0) + " " + splitDateTimeZone(1)
     val timezone = splitDateTimeZone(2)
-    val hostname = "hostName"
-    val level = lineObj.get(properties.getRequired("json.origen.level")).toString
+    val hostname = quitaComillas(lineObj.get(properties.getRequired("json.origen.hostName")))
+    val level = quitaComillas(lineObj.get(properties.getRequired("json.origen.event"))
+      .get(properties.getRequired("json.origen.level")))
 
     // Se crea la estructura del JSON
     val metaDatosJson = new LogPayLoad(thread, fqcn, PayLoad)
     val logJson = new LogMetadataService(datetime, timezone, hostname, level, metaDatosJson)
 
-    // Se transforma el pojo en un JSON
-    val mapperWrite = new ObjectMapper()
-    val outLogJson = new StringWriter
-    mapperWrite.writeValue(outLogJson, logJson)
-
-    outLogJson.toString
+    createJSONFromPojo(logJson)
   }
 
   def createDummyJSON(line: String): String = {
@@ -139,12 +141,25 @@ object ReadFromKafka {
     val metadatosJson = new LogPayLoad("logMalformed", "logMalformed", line)
     val logJson = new LogMetadataService("logMalformed", "logMalformed", "logMalformed", "logMalformed", metadatosJson)
 
+    createJSONFromPojo(logJson)
+  }
+
+  def createJSONFromPojo(pojo: Any): String = {
+
     // Se transforma el pojo en un JSON
     val mapper = new ObjectMapper()
     val outLogJson = new StringWriter
-    mapper.writeValue(outLogJson, logJson)
+    mapper.writeValue(outLogJson, pojo)
 
     outLogJson.toString
+  }
+
+  def quitaComillas(texto: Any): String = {
+    val nuevoTexto = texto match {
+      case null => ""
+      case _ => texto.toString.substring(1, texto.toString.length - 1)
+    }
+    nuevoTexto
   }
 
   def formatDate(timeMillis: Long, patternStr: String): String = {
