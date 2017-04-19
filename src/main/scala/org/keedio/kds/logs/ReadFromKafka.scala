@@ -25,10 +25,10 @@ import scala.collection.JavaConversions._
   */
 object ReadFromKafka {
 
-  val propertiesFile = "./src/main/resources/logsAggregation.properties"
-  val properties: ParameterTool = ParameterTool.fromPropertiesFile(propertiesFile)
-
   def main(args: Array[String]): Unit = {
+
+    val propertiesFile: String = args(0)
+    val properties: ParameterTool = ParameterTool.fromPropertiesFile(propertiesFile)
 
     val propertiesKafkaConsumer = new Properties()
     propertiesKafkaConsumer.setProperty("bootstrap.servers", properties.getRequired("kafka.broker.list"))
@@ -67,7 +67,9 @@ object ReadFromKafka {
         val (finalJSON, nameServiceLog) = lineLogOK match {
           case true => {
             val eventJSON = getJSONAsObject(lineEvent)
-            (createJSONFromJSON(eventJSON), quitaComillas(eventJSON.get(properties.getRequired("json.origen.topic"))))
+
+            (createJSONFromJSON(eventJSON, properties),
+              quitaComillas(eventJSON.get(properties.getRequired("json.origen.topic"))))
           }
           case false => (createDummyJSON(lineEvent), "dummyService")
         }
@@ -98,7 +100,7 @@ object ReadFromKafka {
     lineObj
   }
 
-  def createJSONFromJSON(lineObj: JsonNode): String = {
+  def createJSONFromJSON(lineObj: JsonNode, properties: ParameterTool): String = {
 
     // Se setean los valores para el pojo 'LogPayLoad'
     val thread = quitaComillas(lineObj.get(properties.getRequired("json.origen.event"))
