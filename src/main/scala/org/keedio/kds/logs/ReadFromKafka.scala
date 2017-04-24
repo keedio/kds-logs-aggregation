@@ -27,8 +27,12 @@ object ReadFromKafka {
 
   def main(args: Array[String]): Unit = {
 
-    val propertiesFile: String = args(0)
-    val properties: ParameterTool = ParameterTool.fromPropertiesFile(propertiesFile)
+    val properties: ParameterTool = ParameterTool.fromPropertiesFile {
+      args.toList match {
+        case s :: _ => s
+        case _ => "./src/main/resources/logsAggregation.properties"
+      }
+    }
 
     val propertiesKafkaConsumer = new Properties()
     propertiesKafkaConsumer.setProperty("bootstrap.servers", properties.getRequired("kafka.broker.list"))
@@ -64,14 +68,13 @@ object ReadFromKafka {
         // Se comprueba que la linea del evento llaga correctamente formada
         val lineLogOK = isJSON(lineEvent)
 
-        val (finalJSON, nameServiceLog) = lineLogOK match {
-          case true => {
-            val eventJSON = getJSONAsObject(lineEvent)
+        val (finalJSON, nameServiceLog) = if (lineLogOK) {
+          val eventJSON: JsonNode = getJSONAsObject(lineEvent)
 
-            (createJSONFromJSON(eventJSON, properties),
-              quitaComillas(eventJSON.get(properties.getRequired("json.origen.topic"))))
-          }
-          case false => (createDummyJSON(lineEvent), "dummyService")
+          (createJSONFromJSON(eventJSON, properties),
+            quitaComillas(eventJSON.get(properties.getRequired("json.origen.topic"))))
+        } else {
+          (createDummyJSON(lineEvent), "dummyService")
         }
 
         Requests.indexRequest.index(properties.getRequired("elasticSearch.index.name"))
@@ -88,7 +91,7 @@ object ReadFromKafka {
       getJSONAsObject(line)
       true
     } catch {
-      case e: Exception => false
+      case _: Exception => false
     }
   }
 
