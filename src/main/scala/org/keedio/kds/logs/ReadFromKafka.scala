@@ -17,6 +17,7 @@ import org.elasticsearch.client.Requests
 import org.elasticsearch.common.transport.{InetSocketTransportAddress, TransportAddress}
 import org.joda.time._
 import org.joda.time.format._
+import org.slf4j.{Logger, LoggerFactory}
 
 import scala.collection.JavaConversions._
 
@@ -25,7 +26,11 @@ import scala.collection.JavaConversions._
   */
 object ReadFromKafka {
 
+  val log: Logger = LoggerFactory.getLogger(this.getClass)
+
   def main(args: Array[String]): Unit = {
+
+    log.info("Inicio del job ** ReadFromKafka **")
 
     val properties: ParameterTool = ParameterTool.fromPropertiesFile {
       args.toList match {
@@ -91,7 +96,9 @@ object ReadFromKafka {
       getJSONAsObject(line)
       true
     } catch {
-      case _: Exception => false
+      case _: Exception =>
+        log.error("El evento obtenido de kafka no es un JSON")
+        false
     }
   }
 
