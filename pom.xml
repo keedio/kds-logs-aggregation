@@ -6,7 +6,7 @@
 
     <groupId>org.keedio.kds.logs</groupId>
     <artifactId>kds-logs-aggregation</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.4-SNAPSHOT</version>
 
     <properties>
         <scala.version>2.10.4</scala.version>
@@ -15,6 +15,7 @@
         <flink-connector-elasticsearch.version>1.1.3</flink-connector-elasticsearch.version>
         <jackson-core.version>2.8.7</jackson-core.version>
         <jackson-module-scala_2.10.version>2.8.7</jackson-module-scala_2.10.version>
+        <joda-time.version>2.9.9</joda-time.version>
     </properties>
 
     <developers>
@@ -59,6 +60,12 @@
             <groupId>com.fasterxml.jackson.module</groupId>
             <artifactId>jackson-module-scala_2.10</artifactId>
             <version>${jackson-module-scala_2.10.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>joda-time</groupId>
+            <artifactId>joda-time</artifactId>
+            <version>${joda-time.version}</version>
         </dependency>
     </dependencies>
 
