@@ -4,6 +4,7 @@ import java.io.StringWriter
 import java.util
 import java.util.Properties
 
+import com.fasterxml.jackson.core.JsonParseException
 import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
 import org.apache.flink.api.common.functions.RuntimeContext
 import org.apache.flink.api.java.utils.ParameterTool
@@ -24,6 +25,8 @@ import scala.collection.JavaConversions._
 /**
   * Created by ivanrozas on 17/3/17.
   */
+class ReadFromKafka
+
 object ReadFromKafka {
 
   val log: Logger = LoggerFactory.getLogger(this.getClass)
@@ -91,25 +94,45 @@ object ReadFromKafka {
     env.execute("Flink kds-logs-aggregation")
   }
 
+  /**
+    *
+    * @param line String
+    * @return
+    */
   def isJSON(line: String): Boolean = {
     try {
       getJSONAsObject(line)
       true
     } catch {
-      case _: Exception =>
-        log.error("El evento obtenido de kafka no es un JSON")
+      case parseExc: JsonParseException =>
+        log.error("Parse Exception. El evento obtenido de kafka no es un JSON: " + parseExc)
+        false
+      case nullPointExc: NullPointerException =>
+        log.error("Null Pointer Exception. El evento obtenido de kafka es nulo: " + nullPointExc)
+        false
+      case e: Exception =>
+        log.error("Error al parserar el evento obtenido de kafka, no es un JSON: " + e)
         false
     }
   }
 
+  /**
+    * Transform a String into a JSON
+    *
+    * @param line String
+    * @return
+    */
   def getJSONAsObject(line: String): JsonNode = {
-    // Se transforma el String en un JSON
     val mapperRead = new ObjectMapper()
-    val lineObj = mapperRead.readTree(line)
-
-    lineObj
+    mapperRead.readTree(line)
   }
 
+  /**
+    *
+    * @param lineObj JsonNode
+    * @param properties ParameterTool
+    * @return
+    */
   def createJSONFromJSON(lineObj: JsonNode, properties: ParameterTool): String = {
 
     // Se setean los valores para el pojo 'LogPayLoad'
@@ -147,6 +170,11 @@ object ReadFromKafka {
     createJSONFromPojo(logJson)
   }
 
+  /**
+    *
+    * @param line String
+    * @return
+    */
   def createDummyJSON(line: String): String = {
     // Se crea la estructura del JSON
     val metadatosJson = new LogPayLoad("logMalformed", "logMalformed", line)
@@ -155,6 +183,11 @@ object ReadFromKafka {
     createJSONFromPojo(logJson)
   }
 
+  /**
+    *
+    * @param pojo Any
+    * @return
+    */
   def createJSONFromPojo(pojo: Any): String = {
 
     // Se transforma el pojo en un JSON
@@ -165,20 +198,37 @@ object ReadFromKafka {
     outLogJson.toString
   }
 
-  def quitaComillas(texto: Any): String = {
-    val nuevoTexto = texto match {
+  /**
+    *
+    * @param texto Any
+    * @return
+    */
+  def quitaComillas(texto: JsonNode): String = {
+    val nuevoTexto = texto.toString match {
       case null => ""
       case _ => texto.toString.substring(1, texto.toString.length - 1)
     }
     nuevoTexto
   }
 
+  /**
+    *
+    * @param timeMillis Long
+    * @param patternStr String
+    * @return
+    */
   def formatDate(timeMillis: Long, patternStr: String): String = {
     val date = new DateTime(timeMillis)
     val pattern = patternStr
     DateTimeFormat.forPattern(pattern).print(date)
   }
 
+  /**
+    *
+    * @param text String
+    * @param charSplit String
+    * @return
+    */
   def getSplitText(text: String, charSplit: String): Array[String] = {
     val arraySplitText: Array[String] = text.toString.split(charSplit)
     arraySplitText
